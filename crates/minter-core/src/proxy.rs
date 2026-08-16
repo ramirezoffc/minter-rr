@@ -9,6 +9,95 @@ pub struct ProxyManager {
 /// "keep the stored line unchanged".
 pub const PROXY_MASK: &str = "••••";
 
+const PROXY_SCHEMES: &[&str] = &[
+    "http://",
+    "https://",
+    "socks4://",
+    "socks5://",
+    "socks5h://",
+];
+
+/// Remove proxy URL userinfo from free-form errors and logs.
+///
+/// The scan is deliberately dependency-free and ASCII case-insensitive. It
+/// preserves the proxy scheme and endpoint for diagnostics, but replaces all
+/// text before the last `@` in the URL authority (passwords may contain `@`).
+pub fn redact_proxy_credentials(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let mut output = String::with_capacity(text.len());
+    let mut cursor = 0;
+
+    while cursor < text.len() {
+        let next = PROXY_SCHEMES
+            .iter()
+            .filter_map(|scheme| {
+                lower[cursor..]
+                    .find(scheme)
+                    .map(|offset| (cursor + offset, scheme.len()))
+            })
+            .min_by_key(|(start, _)| *start);
+        let Some((scheme_start, scheme_len)) = next else {
+            output.push_str(&text[cursor..]);
+            break;
+        };
+
+        let authority_start = scheme_start + scheme_len;
+        let authority_end = text[authority_start..]
+            .find(|c: char| {
+                c.is_whitespace()
+                    || matches!(
+                        c,
+                        '/' | '?' | '#' | '\'' | '"' | ')' | ']' | '}' | ',' | ';'
+                    )
+            })
+            .map(|offset| authority_start + offset)
+            .unwrap_or(text.len());
+        let authority = &text[authority_start..authority_end];
+
+        output.push_str(&text[cursor..authority_start]);
+        if let Some(at) = authority.rfind('@') {
+            output.push_str(PROXY_MASK);
+            output.push_str(&authority[at..]);
+        } else {
+            output.push_str(authority);
+        }
+        cursor = authority_end;
+    }
+
+    output
+}
+
+/// Sanitize an error associated with a known proxy value. Exact replacement
+/// covers legacy non-URL formats; the URL scan also catches normalized copies
+/// produced by HTTP libraries.
+pub fn redact_proxy_error(error: &str, proxy: &str) -> String {
+    let masked = mask_proxy_line(proxy);
+    let without_exact_value = if proxy.is_empty() {
+        error.to_string()
+    } else {
+        error.replace(proxy, &masked)
+    };
+    redact_proxy_credentials(&without_exact_value)
+}
+
+fn proxy_endpoint(line: &str) -> String {
+    let trimmed = line.trim();
+    let rest = match trimmed.find("://") {
+        Some(i) => &trimmed[i + 3..],
+        None => trimmed,
+    };
+    if let Some(at) = rest.rfind('@') {
+        return rest[at + 1..].to_string();
+    }
+    if !trimmed.contains("://") {
+        let parts: Vec<&str> = trimmed.splitn(4, ':').collect();
+        if parts.len() == 4 {
+            return format!("{}:{}", parts[0], parts[1]);
+        }
+    }
+    rest.to_string()
+}
+
 /// Mask the `user:pass@` userinfo of one proxy line, keeping `scheme://host:port`
 /// intact so the operator can still recognise and reorder entries.
 ///
@@ -18,6 +107,10 @@ pub fn mask_proxy_line(line: &str) -> String {
     if trimmed.is_empty() || trimmed.starts_with('#') {
         return line.to_string();
     }
+    let url_redacted = redact_proxy_credentials(trimmed);
+    if url_redacted != trimmed {
+        return url_redacted;
+    }
     // Split scheme off first so an '@' inside the scheme cannot confuse us.
     let (scheme, rest) = match trimmed.find("://") {
         Some(i) => (&trimmed[..i + 3], &trimmed[i + 3..]),
@@ -26,7 +119,18 @@ pub fn mask_proxy_line(line: &str) -> String {
     // Userinfo ends at the LAST '@' before the host: a password may contain '@'.
     match rest.rfind('@') {
         Some(at) => format!("{scheme}{PROXY_MASK}@{}", &rest[at + 1..]),
-        None => trimmed.to_string(),
+        None => {
+            // Legacy host:port:user:pass format has no '@' to identify
+            // userinfo, but is still a supported input and must never reach the
+            // webview or logs with credentials intact.
+            if scheme.is_empty() {
+                let parts: Vec<&str> = trimmed.splitn(4, ':').collect();
+                if parts.len() == 4 {
+                    return format!("{}:{}:{PROXY_MASK}:{PROXY_MASK}", parts[0], parts[1]);
+                }
+            }
+            trimmed.to_string()
+        }
     }
 }
 
@@ -51,15 +155,7 @@ pub fn mask_proxy_list(list: &str) -> String {
 /// verbatim, which is how new proxies get added.
 pub fn merge_masked_proxy_list(edited: &str, stored: &str) -> String {
     fn host_key(line: &str) -> String {
-        let t = line.trim();
-        let rest = match t.find("://") {
-            Some(i) => &t[i + 3..],
-            None => t,
-        };
-        match rest.rfind('@') {
-            Some(at) => rest[at + 1..].to_ascii_lowercase(),
-            None => rest.to_ascii_lowercase(),
-        }
+        proxy_endpoint(line).to_ascii_lowercase()
     }
 
     let mut by_host: std::collections::HashMap<String, Vec<&str>> =
@@ -105,17 +201,7 @@ pub fn short_proxy(url: &str) -> String {
             s.to_string()
         }
     }
-    if let Some(at) = url.find('@') {
-        shorten(&url[at + 1..])
-    } else {
-        let stripped = url
-            .strip_prefix("http://")
-            .or_else(|| url.strip_prefix("https://"))
-            .or_else(|| url.strip_prefix("socks5://"))
-            .or_else(|| url.strip_prefix("socks4://"))
-            .unwrap_or(url);
-        shorten(stripped)
-    }
+    shorten(&proxy_endpoint(url))
 }
 
 /// Percent-encode userinfo for proxy URLs (user/pass may contain `:`, `@`, etc.).
@@ -215,10 +301,11 @@ impl ProxyManager {
             match parse_proxy(l) {
                 Ok(p) => proxies.push(p),
                 Err(e) => {
+                    let safe_line = mask_proxy_line(l);
                     crate::rlog!(
                         "proxy line {}: skipped invalid entry ({e}): {}",
                         lineno + 1,
-                        crate::safe_truncate(l, 80)
+                        crate::safe_truncate(&safe_line, 80)
                     );
                 }
             }
@@ -443,7 +530,7 @@ async fn probe_proxy_url(proxy_url: &str) -> ProbeResult {
             return ProbeResult {
                 ok: false,
                 latency_ms: None,
-                error: Some(format!("bad proxy: {}", e)),
+                error: Some(redact_proxy_error(&format!("bad proxy: {e}"), proxy_url)),
             };
         }
     };
@@ -457,7 +544,7 @@ async fn probe_proxy_url(proxy_url: &str) -> ProbeResult {
             return ProbeResult {
                 ok: false,
                 latency_ms: None,
-                error: Some(e.to_string()),
+                error: Some(redact_proxy_error(&e.to_string(), proxy_url)),
             };
         }
     };
@@ -475,7 +562,7 @@ async fn probe_proxy_url(proxy_url: &str) -> ProbeResult {
         Err(e) => ProbeResult {
             ok: false,
             latency_ms: None,
-            error: Some(e.to_string()),
+            error: Some(redact_proxy_error(&e.to_string(), proxy_url)),
         },
     }
 }
@@ -499,6 +586,47 @@ mod mask_tests {
         let masked = mask_proxy_line("http://u:p@ss@host:1080");
         assert!(!masked.contains("p@ss"), "{masked}");
         assert!(masked.ends_with("host:1080"), "{masked}");
+    }
+
+    #[test]
+    fn mask_legacy_host_port_user_pass_and_restore_it() {
+        let stored = "proxy.example:8080:alice:legacy-secret";
+        let masked = mask_proxy_line(stored);
+        assert_eq!(
+            masked,
+            format!("proxy.example:8080:{PROXY_MASK}:{PROXY_MASK}")
+        );
+        assert!(!masked.contains("alice"), "{masked}");
+        assert!(!masked.contains("legacy-secret"), "{masked}");
+        assert_eq!(merge_masked_proxy_list(&masked, stored), stored);
+    }
+
+    #[test]
+    fn free_form_errors_redact_url_userinfo() {
+        let input = "connect via HTTP://alice:p%40ss@proxy.example:8080 failed; fallback socks5h://bob:p@ss@other.example:1080";
+        let redacted = redact_proxy_credentials(input);
+        for secret in ["alice", "p%40ss", "bob", "p@ss"] {
+            assert!(!redacted.contains(secret), "{redacted}");
+        }
+        assert!(redacted.contains("proxy.example:8080"), "{redacted}");
+        assert!(redacted.contains("other.example:1080"), "{redacted}");
+    }
+
+    #[test]
+    fn known_proxy_replacement_covers_legacy_format() {
+        let proxy = "proxy.example:8080:alice:legacy-secret";
+        let error = format!("invalid proxy {proxy}");
+        let redacted = redact_proxy_error(&error, proxy);
+        assert!(!redacted.contains("alice"), "{redacted}");
+        assert!(!redacted.contains("legacy-secret"), "{redacted}");
+        assert!(redacted.contains("proxy.example:8080"), "{redacted}");
+    }
+
+    #[test]
+    fn short_label_uses_last_at_and_never_password_tail() {
+        let label = short_proxy("http://alice:p@ss@proxy.example:8080");
+        assert_eq!(label, "proxy.example:8080");
+        assert!(!label.contains("ss@"), "{label}");
     }
 
     #[test]

@@ -211,10 +211,12 @@ pub fn build_client_with_cookie_jar_and_proxy(
             Err(e) => {
                 // Never silently fall back to direct — that leaks wallet IP under a
                 // false "via proxy" assumption.
+                let safe_proxy = crate::proxy::mask_proxy_line(proxy);
+                let safe_error = crate::proxy::redact_proxy_error(&e.to_string(), proxy);
                 bail!(
                     "invalid proxy URL '{}': {} (refusing silent direct connection)",
-                    proxy,
-                    e
+                    safe_proxy,
+                    safe_error
                 );
             }
         }
@@ -231,6 +233,27 @@ pub fn build_client_with_cookie_jar(
 
 pub fn build_client() -> Result<reqwest::Client> {
     build_client_with_cookie_jar(Arc::new(reqwest::cookie::Jar::default()))
+}
+
+#[cfg(test)]
+mod proxy_error_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_proxy_error_redacts_credentials() {
+        let proxy = "http://opensea-user:opensea-password@[invalid";
+        let result = build_client_with_cookie_jar_and_proxy(
+            Arc::new(reqwest::cookie::Jar::default()),
+            Some(proxy),
+        );
+        let error = match result {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("malformed proxy must fail"),
+        };
+        assert!(!error.contains("opensea-user"), "{error}");
+        assert!(!error.contains("opensea-password"), "{error}");
+        assert!(error.contains(crate::proxy::PROXY_MASK), "{error}");
+    }
 }
 
 /// Session with no access token, used for the first (pre-auth) OpenSea call.
@@ -407,7 +430,10 @@ pub async fn siwe_auth_with_retries(
         match siwe_auth_once(address, signer, chain_id, proxy_url).await {
             Ok(session) => return Ok(session),
             Err(e) => {
-                let msg = format!("{}", e);
+                let original_msg = e.to_string();
+                let msg = proxy_url
+                    .map(|proxy| crate::proxy::redact_proxy_error(&original_msg, proxy))
+                    .unwrap_or_else(|| original_msg.clone());
                 let retryable = msg.contains("429")
                     || msg.contains("TOO_MANY_REQUESTS")
                     || msg.contains("Too Many Requests")
@@ -428,10 +454,16 @@ pub async fn siwe_auth_with_retries(
                         wait.as_millis()
                     );
                     tokio::time::sleep(wait).await;
-                    last_err = Some(e);
+                    last_err = Some(match proxy_url {
+                        Some(_) => anyhow::anyhow!(msg),
+                        None => e,
+                    });
                     continue;
                 }
-                return Err(e);
+                return match proxy_url {
+                    Some(_) => Err(anyhow::anyhow!(msg)),
+                    None => Err(e),
+                };
             }
         }
     }

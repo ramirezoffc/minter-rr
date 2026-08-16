@@ -91,7 +91,11 @@ impl RpcClient {
     pub fn new_with_proxy(urls: Vec<String>, proxy_url: Option<&str>) -> Result<Self> {
         let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
         if let Some(p) = proxy_url.map(str::trim).filter(|s| !s.is_empty()) {
-            let proxy = reqwest::Proxy::all(p).with_context(|| format!("invalid RPC proxy {p}"))?;
+            let proxy = reqwest::Proxy::all(p).map_err(|error| {
+                let safe_proxy = crate::proxy::mask_proxy_line(p);
+                let safe_error = crate::proxy::redact_proxy_error(&error.to_string(), p);
+                anyhow::anyhow!("invalid RPC proxy {safe_proxy}: {safe_error}")
+            })?;
             builder = builder.proxy(proxy);
         }
         let client = builder.build().context("build RPC HTTP client")?;
@@ -1419,6 +1423,21 @@ mod tests {
         // Garbage → default retained.
         let g = RpcTuning::from_lookup(|_| Some("notanumber".to_string()));
         assert_eq!(g, RpcTuning::default());
+    }
+
+    #[test]
+    fn invalid_rpc_proxy_error_redacts_credentials() {
+        let result = RpcClient::new_with_proxy(
+            vec!["http://rpc.example".into()],
+            Some("http://rpc-user:rpc-password@[invalid"),
+        );
+        let error = match result {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("malformed proxy must fail"),
+        };
+        assert!(!error.contains("rpc-user"), "{error}");
+        assert!(!error.contains("rpc-password"), "{error}");
+        assert!(error.contains(crate::proxy::PROXY_MASK), "{error}");
     }
 
     #[tokio::test]
