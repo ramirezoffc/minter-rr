@@ -20,7 +20,7 @@
 set -Eeuo pipefail
 
 REPO="${MINTER_REPO:-MaxBetov-pdd/Minter-rs-v2}"
-VERSION="${MINTER_VERSION:-latest}"
+MINTER_RELEASE_VERSION="${MINTER_VERSION:-latest}"
 INSTALL_DIR="/opt/minter"
 DATA_DIR="/var/lib/minter"
 SERVICE="minter-vps"
@@ -142,9 +142,9 @@ esac
 ok "packages installed"
 
 # ── Download the release ─────────────────────────────────────────────────────
-say "Fetching MINTER ($VERSION) from $REPO"
+say "Fetching MINTER ($MINTER_RELEASE_VERSION) from $REPO"
 api="https://api.github.com/repos/$REPO/releases/latest"
-[ "$VERSION" = "latest" ] || api="https://api.github.com/repos/$REPO/releases/tags/$VERSION"
+[ "$MINTER_RELEASE_VERSION" = "latest" ] || api="https://api.github.com/repos/$REPO/releases/tags/$MINTER_RELEASE_VERSION"
 
 meta="$(curl -fsSL "$api")" || die "cannot reach the GitHub release API"
 tag="$(printf '%s' "$meta" | jq -r '.tag_name // empty')"

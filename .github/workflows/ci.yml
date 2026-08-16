@@ -77,4 +77,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check shell syntax
-        run: bash -n deploy/linux/install.sh deploy/linux/install-built.sh deploy/linux/start-minter-vnc.sh
+        run: bash -n deploy/linux/install.sh deploy/linux/install-built.sh deploy/linux/start-minter-vnc.sh deploy/linux/tests/install-version.sh
+
+      - name: Test installer release selector
+        run: bash deploy/linux/tests/install-version.sh
