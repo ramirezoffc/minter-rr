@@ -6,7 +6,10 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "build:windows": "tauri build --bundles nsis --target x86_64-pc-windows-msvc",
+    "package:windows:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/package-windows-portable.ps1",
+    "verify:windows-packaging": "node ../../scripts/verify-windows-packaging.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
