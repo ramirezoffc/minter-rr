@@ -104,3 +104,35 @@ sudo systemctl status minter-vps
 sudo journalctl -u minter-vps -f
 sudo systemctl restart minter-vps
 ```
+
+## VPS rendering fallbacks
+
+The default profile uses XDamage, `x11vnc -wait 5 -defer 5`, WebKit
+compositing, and does not force software GL. The WebKit DMABUF renderer remains
+disabled because it is unreliable under Xvfb.
+
+If a particular VPS shows a black WebView, rendering artifacts, or stale
+frames, add a systemd override with the conservative fallbacks:
+
+```ini
+[Service]
+Environment=MINTER_VNC_NOXDAMAGE=1
+Environment=MINTER_SOFTWARE_RENDERING=1
+Environment=MINTER_WEBKIT_DISABLE_COMPOSITING=1
+```
+
+Create the override with `sudo systemctl edit minter-vps`, then run
+`sudo systemctl restart minter-vps`. Available runtime variables are:
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `MINTER_VNC_WAIT` | `5` | x11vnc update wait in milliseconds (`0..1000`) |
+| `MINTER_VNC_DEFER` | `5` | x11vnc deferred-update delay in milliseconds (`0..1000`) |
+| `MINTER_VNC_NOXDAMAGE` | `0` | set to `1` to disable XDamage |
+| `MINTER_SOFTWARE_RENDERING` | `0` | set to `1` to force software GL |
+| `MINTER_WEBKIT_DISABLE_COMPOSITING` | `0` | set to `1` for the conservative WebKit workaround |
+| `MINTER_WEBKIT_DISABLE_DMABUF` | `1` | set to `0` to re-enable the WebKit DMABUF renderer |
+| `MINTER_SCREEN` | `1440x900x24` | Xvfb screen geometry and depth |
+
+Boolean variables accept only `0` or `1`; invalid values stop the launcher
+instead of being passed to x11vnc.
