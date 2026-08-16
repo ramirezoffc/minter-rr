@@ -69,6 +69,59 @@ jobs:
       - name: Test ${{ matrix.package }}
         run: cargo test -p ${{ matrix.package }} --lib
 
+  windows-packaging:
+    name: Windows · NSIS and portable packages
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/minter-desktop/package-lock.json
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install Tauri CLI
+        working-directory: crates/minter-desktop
+        run: npm ci
+
+      - name: Validate Windows packaging configuration
+        working-directory: crates/minter-desktop
+        run: npm run verify:windows-packaging
+
+      - name: Build unsigned NSIS installer
+        working-directory: crates/minter-desktop
+        run: npm run build:windows
+
+      - name: Verify NSIS artifact
+        shell: pwsh
+        run: |
+          $config = Get-Content -Raw crates/minter-desktop/src-tauri/tauri.conf.json | ConvertFrom-Json
+          $expectedName = "{0}_{1}_x64-setup.exe" -f $config.productName, $config.version
+          $expectedPath = Join-Path $env:GITHUB_WORKSPACE "target\x86_64-pc-windows-msvc\release\bundle\nsis\$expectedName"
+          if (-not (Test-Path -LiteralPath $expectedPath -PathType Leaf)) {
+            Get-ChildItem -Path target -Recurse -Filter "*-setup.exe" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "Found installer candidate: $($_.FullName)" }
+            throw "Expected NSIS installer was not created: $expectedPath"
+          }
+          Write-Host "Verified NSIS installer: $expectedPath"
+
+      - name: Build and verify portable archive
+        working-directory: crates/minter-desktop
+        run: npm run package:windows:portable
+
   linux-deployment-scripts:
     name: bash syntax · Linux deployment
     runs-on: ubuntu-latest
