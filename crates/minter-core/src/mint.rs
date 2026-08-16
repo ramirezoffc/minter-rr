@@ -598,12 +598,13 @@ async fn fetch_and_parse_gql(
 
     let gql_ms = gql_start.elapsed().as_millis();
     if std::env::var("DEBUG").ok().as_deref() == Some("1") {
-        let _ = std::fs::create_dir_all("logs");
-        let debug_file = format!(
-            "logs/debug_gql_{}_{}.json",
+        let logs = crate::runtime_paths::active().logs();
+        let _ = std::fs::create_dir_all(&logs);
+        let debug_file = logs.join(format!(
+            "debug_gql_{}_{}.json",
             sign::shorten_address(addr),
             attempt
-        );
+        ));
         let _ = std::fs::write(
             &debug_file,
             serde_json::to_string_pretty(&resp).unwrap_or_else(|_| resp.to_string()),
@@ -615,7 +616,7 @@ async fn fetch_and_parse_gql(
                 "[{}] GQL fetch OK {}ms (saved {})",
                 sign::shorten_address(addr),
                 gql_ms,
-                debug_file
+                debug_file.display()
             ),
         );
     } else {

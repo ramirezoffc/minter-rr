@@ -300,15 +300,8 @@ fn gql_request(client: &reqwest::Client) -> reqwest::RequestBuilder {
         .header("x-graphql-operation-type", "query")
 }
 
-fn debug_file_next_to_exe(name: &str) -> std::path::PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join(name)))
-        .unwrap_or_else(|| {
-            std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .join(name)
-        })
+fn debug_file_in_logs(name: &str) -> std::path::PathBuf {
+    crate::runtime_paths::active().logs().join(name)
 }
 
 /// Upper bound on any honoured server wait. Beyond this the drop is over
@@ -789,7 +782,7 @@ async fn collection_drop_info_once(
 
     let data: serde_json::Value = resp.json().await?;
     if std::env::var("DEBUG").ok().as_deref() == Some("1") {
-        let debug_file = debug_file_next_to_exe(&format!(
+        let debug_file = debug_file_in_logs(&format!(
             "debug_collection_{}.json",
             addr_str
                 .replace("0x", "")
@@ -797,6 +790,9 @@ async fn collection_drop_info_once(
                 .take(6)
                 .collect::<String>()
         ));
+        if let Some(parent) = debug_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         match std::fs::write(
             &debug_file,
             serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string()),
