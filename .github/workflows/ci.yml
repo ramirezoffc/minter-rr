@@ -1,5 +1,3 @@
-# Minimal CI for minter-core (no Windows GUI required).
-# Push only to https://github.com/MaxBetov-pdd/Minter-rs-v2
 name: CI
 
 on:
@@ -7,13 +5,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  core:
-    name: fmt · clippy · test (minter-core)
+  format:
+    name: rustfmt
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,28 +24,31 @@ jobs:
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-
-      - name: rustfmt
+      - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: clippy (minter-core)
-        run: cargo clippy -p minter-core --all-targets -- -D warnings
-
-      - name: test (minter-core)
-        run: cargo test -p minter-core --lib
-
-  desktop:
-    name: clippy · test (minter-desktop)
-    runs-on: windows-latest
+  rust:
+    name: ${{ matrix.os }} · ${{ matrix.package }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        package: [minter-core, minter-desktop]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux' && matrix.package == 'minter-desktop'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev \
+            libwebkit2gtk-4.1-dev libxdo-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -55,10 +60,21 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      # The Tauri crate was never built in CI, so warnings and breakage in the
-      # entire IPC layer went unnoticed. It needs the Windows runner for WebView2.
-      - name: clippy (minter-desktop)
-        run: cargo clippy -p minter-desktop --all-targets -- -D warnings
+      - name: Check ${{ matrix.package }}
+        run: cargo check -p ${{ matrix.package }} --all-targets
 
-      - name: test (minter-desktop)
-        run: cargo test -p minter-desktop --lib
+      - name: Clippy ${{ matrix.package }}
+        run: cargo clippy -p ${{ matrix.package }} --all-targets -- -D warnings
+
+      - name: Test ${{ matrix.package }}
+        run: cargo test -p ${{ matrix.package }} --lib
+
+  linux-deployment-scripts:
+    name: bash syntax · Linux deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: bash -n deploy/linux/install.sh deploy/linux/install-built.sh deploy/linux/start-minter-vnc.sh
