@@ -26,7 +26,7 @@ pub struct MintEvent {
 
 /// Redact secrets from free-form mint log strings (JWT, long hex keys).
 pub fn sanitize_log_text(s: &str) -> String {
-    let mut out = s.to_string();
+    let mut out = crate::proxy::redact_proxy_credentials(s);
     // Bearer / JWT-like.
     // ASCII-lowercase only: `to_lowercase()` applies full Unicode case mapping,
     // which can change byte lengths (e.g. `İ` 2 bytes → `i̇` 3 bytes), so its
@@ -267,5 +267,15 @@ mod sanitize_unicode_tests {
         let out = sanitize_log_text("auth Bearer abcdefghijklmnopqrstuv done");
         assert!(out.contains("REDACTED"));
         assert!(out.contains("done"));
+    }
+
+    #[test]
+    fn proxy_credentials_are_redacted_from_log_text() {
+        let out = sanitize_log_text(
+            "request through http://proxy-user:proxy-password@proxy.example:8080 failed",
+        );
+        assert!(!out.contains("proxy-user"), "{out}");
+        assert!(!out.contains("proxy-password"), "{out}");
+        assert!(out.contains("proxy.example:8080"), "{out}");
     }
 }
