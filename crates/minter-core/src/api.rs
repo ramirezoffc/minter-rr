@@ -381,7 +381,8 @@ impl Session {
     }
 
     pub fn default_paths() -> Self {
-        Self::with_paths("keys.vault", "config.json", ".env")
+        let paths = crate::runtime_paths::active();
+        Self::with_paths(paths.vault(), paths.config(), paths.legacy_env())
     }
 
     pub fn config_path(&self) -> &Path {
@@ -554,23 +555,15 @@ impl Session {
 
     /// Places to try for the plaintext recovery backup, best first.
     ///
-    /// The desktop build configures the vault as a bare `keys.vault`, so its
-    /// parent is empty and the backup used to land in `./imports` — relative to
-    /// the *working directory*, which on Windows is whatever launched the
-    /// program. From a Start-menu shortcut that is `C:\Windows\System32`; from
-    /// a still-zipped folder it is a read-only temp directory; and in Downloads
-    /// or on the Desktop, Controlled Folder Access refuses folder creation to
-    /// unsigned programs while still allowing the vault to be *read*. All three
-    /// end the same way: the vault opens, the backup cannot be written, and
-    /// generation aborts with nothing created.
+    /// Historically the desktop configured a bare `keys.vault`, so its backup
+    /// landed in cwd-relative `./imports`. The runtime-path resolver now gives
+    /// the default session an explicit vault parent, making that installation's
+    /// `imports/` the first choice without moving any existing data.
     ///
     /// So offer alternatives instead of one guess. The order deliberately keeps
-    /// today's location first: where the working directory *is* the vault's
-    /// directory — the service on the server, and the common Windows case of
-    /// double-clicking the executable in its own folder — the backup must keep
-    /// landing exactly where it always has. The fallbacks only engage once that
-    /// fails, and the chosen path is returned to the caller so nobody has to
-    /// hunt for their keys.
+    /// the selected vault's location first. Existing fallbacks remain for
+    /// custom callers and write failures, and the chosen path is returned to
+    /// the caller so nobody has to hunt for their keys.
     fn burner_backup_dirs(vault_path: &Path) -> Vec<PathBuf> {
         let mut dirs: Vec<PathBuf> = Vec::new();
         let mut push = |dir: PathBuf| {

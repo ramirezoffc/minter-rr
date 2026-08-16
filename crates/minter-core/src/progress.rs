@@ -132,7 +132,7 @@ pub struct FileTeeReporter {
 
 impl FileTeeReporter {
     pub fn create(inner: std::sync::Arc<dyn MintReporter>, slug: &str) -> std::io::Result<Self> {
-        let dir = std::path::PathBuf::from("logs");
+        let dir = crate::runtime_paths::active().logs();
         std::fs::create_dir_all(&dir)?;
         let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S");
         let safe: String = slug

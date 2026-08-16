@@ -45,6 +45,7 @@ pub mod proxy;
 pub mod raw_mint;
 pub mod raw_sniper;
 pub mod rpc;
+pub mod runtime_paths;
 pub mod safety_policy;
 pub mod settings;
 pub mod sign;
@@ -137,6 +138,7 @@ pub use mint_ops::{
 };
 pub use progress::{MintEvent, MintReporter, NullReporter};
 pub use raw_sniper::{RawSniperConfig, SniperPreset, ValueMode};
+pub use runtime_paths::RuntimePaths;
 pub use safety_policy::{
     FeeRefreshMode, MULTI_WALLET_PROXY_WARN_THRESHOLD, auth_concurrency_after_rate_limit,
     default_auth_concurrency, ensure_live_confirm, is_rate_limit_error,

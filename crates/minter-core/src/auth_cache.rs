@@ -18,7 +18,6 @@ struct CachedToken {
     expires_at: i64,
 }
 
-const CACHE_FILE: &str = "auth_cache.bin";
 /// Fallback lifetime when the token carries no readable `exp` claim.
 const TOKEN_TTL_SECS: i64 = 3000;
 /// Safety margin subtracted from a JWT's own `exp` so a token isn't used in the
@@ -77,7 +76,7 @@ pub struct AuthCache {
 
 impl AuthCache {
     pub fn load(password: Option<&str>) -> Self {
-        Self::load_at(PathBuf::from(CACHE_FILE), password)
+        Self::load_at(crate::runtime_paths::active().auth_cache(), password)
     }
 
     /// Load from an explicit path (tests / alternate data dirs).
@@ -218,9 +217,9 @@ impl AuthCache {
                 .with_context(|| format!("remove auth cache {}", self.path.display()))?;
         }
         // also remove legacy plaintext if present
-        let legacy = std::path::Path::new("auth_cache.json");
+        let legacy = self.path.with_file_name("auth_cache.json");
         if legacy.exists() {
-            let _ = std::fs::remove_file(legacy);
+            let _ = std::fs::remove_file(&legacy);
         }
         Ok(())
     }

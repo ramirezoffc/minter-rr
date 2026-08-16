@@ -231,38 +231,18 @@ impl ProxyManager {
     }
 
     pub fn load_default() -> Self {
-        let candidates = {
-            let mut v = Vec::new();
-            if let Ok(cwd) = std::env::current_dir() {
-                v.push(cwd.join("proxies.txt"));
-            }
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(dir) = exe.parent() {
-                    let mut d = dir;
-                    for _ in 0..10 {
-                        v.push(d.join("proxies.txt"));
-                        match d.parent() {
-                            Some(p) => d = p,
-                            None => break,
-                        }
-                    }
+        let path = crate::runtime_paths::active().proxies();
+        if path.exists() {
+            match Self::from_file(&path) {
+                Ok(pm) if !pm.is_empty() => {
+                    crate::rlog!("Loaded {} proxy(ies) from {}", pm.len(), path.display());
+                    return pm;
                 }
-            }
-            v
-        };
-        for path in &candidates {
-            if path.exists() {
-                match Self::from_file(path) {
-                    Ok(pm) if !pm.is_empty() => {
-                        crate::rlog!("Loaded {} proxy(ies) from {}", pm.len(), path.display());
-                        return pm;
-                    }
-                    Ok(_) => {
-                        crate::rlog!("Proxy file {} is empty", path.display());
-                    }
-                    Err(e) => {
-                        crate::rlog!("Failed to load proxies from {}: {}", path.display(), e);
-                    }
+                Ok(_) => {
+                    crate::rlog!("Proxy file {} is empty", path.display());
+                }
+                Err(e) => {
+                    crate::rlog!("Failed to load proxies from {}: {}", path.display(), e);
                 }
             }
         }

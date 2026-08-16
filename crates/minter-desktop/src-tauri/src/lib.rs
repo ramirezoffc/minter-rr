@@ -1472,20 +1472,9 @@ fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// Resolve a runtime output directory, creating it and reporting real failures.
-///
-/// Deliberately cwd-relative: `minter_core::export` writes to a bare
-/// `results/` path (`export.rs:58`), so anchoring the desktop side to
-/// `app_data_dir` would make "Open results folder" show an always-empty
-/// directory while the exports landed elsewhere. Both sides must agree, so the
-/// location stays and only the swallowed error is fixed.
+/// Resolve an output directory below the process-wide runtime data root.
 fn runtime_dir(name: &str) -> Result<std::path::PathBuf, String> {
-    let p = std::env::current_dir()
-        .map_err(|e| format!("cannot resolve working directory: {e}"))?
-        .join(name);
-    // Was `let _ = create_dir_all(...)`: on a read-only or non-writable cwd the
-    // path was still returned as if valid, and the operator only found out when
-    // an export silently failed later.
+    let p = minter_core::runtime_paths::active().root().join(name);
     std::fs::create_dir_all(&p).map_err(|e| format!("cannot create {}: {e}", p.display()))?;
     Ok(p)
 }
@@ -2112,12 +2101,8 @@ async fn pick_files(
 }
 
 /// wallet_meta.json — groups + proxy map (no private keys).
-fn wallet_meta_path(state: &AppState) -> std::path::PathBuf {
-    let s = state.session.lock();
-    s.config_path()
-        .parent()
-        .map(|p| p.join("wallet_meta.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("wallet_meta.json"))
+fn wallet_meta_path(_state: &AppState) -> std::path::PathBuf {
+    minter_core::runtime_paths::active().wallet_meta()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -2342,12 +2327,8 @@ async fn read_text_file(state: State<'_, Arc<AppState>>, token: String) -> Resul
 }
 
 /// tasks.json next to config.json (no secrets — addresses + params only).
-fn tasks_path(state: &AppState) -> std::path::PathBuf {
-    let s = state.session.lock();
-    s.config_path()
-        .parent()
-        .map(|p| p.join("tasks.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("tasks.json"))
+fn tasks_path(_state: &AppState) -> std::path::PathBuf {
+    minter_core::runtime_paths::active().tasks()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -2396,12 +2377,8 @@ fn save_tasks(state: State<'_, Arc<AppState>>, file: TasksFile) -> Result<(), St
 }
 
 /// runs_history.json — mint run summaries (no private keys).
-fn runs_history_path(state: &AppState) -> std::path::PathBuf {
-    let s = state.session.lock();
-    s.config_path()
-        .parent()
-        .map(|p| p.join("runs_history.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("runs_history.json"))
+fn runs_history_path(_state: &AppState) -> std::path::PathBuf {
+    minter_core::runtime_paths::active().runs_history()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

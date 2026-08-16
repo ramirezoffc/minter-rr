@@ -122,7 +122,7 @@ pub const MANAGED_CONNECTION_ENV_KEYS: &[&str] = &[
 
 impl Settings {
     pub fn config_path_default() -> PathBuf {
-        PathBuf::from("config.json")
+        crate::runtime_paths::active().config()
     }
 
     /// Load settings: `config.json` is authoritative when present.

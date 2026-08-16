@@ -56,7 +56,7 @@ pub fn wallet_row(
 }
 
 fn results_dir() -> PathBuf {
-    PathBuf::from("results")
+    crate::runtime_paths::active().results()
 }
 
 /// Sanitize a collection slug for use in a file/directory name.
