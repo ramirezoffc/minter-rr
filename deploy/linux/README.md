@@ -13,7 +13,15 @@ One command on a fresh server. It pulls the prebuilt binary from GitHub
 Releases — no Rust toolchain, no compile:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MaxBetov-pdd/Minter-rs-v2/main/deploy/linux/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ramirezoffc/minter-rr/main/deploy/linux/install.sh | sudo bash
+```
+
+GitHub does not treat prereleases as the stable `latest` release. Install this
+beta explicitly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ramirezoffc/minter-rr/main/deploy/linux/install.sh |
+  sudo MINTER_VERSION=v0.3.0-beta.1 bash
 ```
 
 It installs runtime packages, verifies the download against the published
@@ -28,7 +36,8 @@ Useful variables:
 
 | Variable | Purpose |
 |---|---|
-| `MINTER_VERSION=v0.2.0` | install a specific tag instead of the latest |
+| `MINTER_VERSION=v0.3.0-beta.1` | install a specific tag instead of the latest stable release |
+| `MINTER_REPO=owner/repository` | override the default `ramirezoffc/minter-rr` release source |
 | `MINTER_VNC_PASSWORD=…` | non-interactive install |
 | `MINTER_FORCE=1` | replace the binary even if a mint looks active |
 

@@ -2,7 +2,7 @@
 #
 # MINTER — one-command install on a headless Linux VPS.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MaxBetov-pdd/Minter-rs-v2/main/deploy/linux/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/ramirezoffc/minter-rr/main/deploy/linux/install.sh | sudo bash
 #
 # Downloads the prebuilt binary from GitHub Releases (no Rust toolchain, no
 # 10-minute compile), installs it as a systemd service behind a private noVNC
@@ -19,7 +19,7 @@
 # wallet GUI. Reach it through an SSH tunnel — see minter-connect.
 set -Eeuo pipefail
 
-REPO="${MINTER_REPO:-MaxBetov-pdd/Minter-rs-v2}"
+REPO="${MINTER_REPO:-ramirezoffc/minter-rr}"
 MINTER_RELEASE_VERSION="${MINTER_VERSION:-latest}"
 INSTALL_DIR="/opt/minter"
 DATA_DIR="/var/lib/minter"
@@ -150,26 +150,34 @@ meta="$(curl -fsSL "$api")" || die "cannot reach the GitHub release API"
 tag="$(printf '%s' "$meta" | jq -r '.tag_name // empty')"
 [ -n "$tag" ] || die "no release found in $REPO (has one been published yet?)"
 url="$(printf '%s' "$meta" |
-  jq -r '[.assets[]?.browser_download_url | select(endswith("linux-x64.tar.gz"))] | first // empty')"
-[ -n "$url" ] || die "release $tag has no linux-x64 asset"
+  jq -r '([.assets[]?.browser_download_url | select(endswith("_linux-vps-x64.tar.gz"))] | first) //
+         ([.assets[]?.browser_download_url | select(endswith("-linux-x64.tar.gz"))] | first) // empty')"
+[ -n "$url" ] || die "release $tag has no Linux VPS x64 asset"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "$url" -o "$tmp/minter.tar.gz"
 
-sum_url="$(printf '%s' "$meta" |
+sums_url="$(printf '%s' "$meta" |
+  jq -r '[.assets[]?.browser_download_url | select(endswith("SHA256SUMS.txt"))] | first // empty')"
+legacy_sum_url="$(printf '%s' "$meta" |
   jq -r '[.assets[]?.browser_download_url | select(endswith("linux-x64.tar.gz.sha256"))] | first // empty')"
-if [ -n "$sum_url" ]; then
-  curl -fsSL "$sum_url" -o "$tmp/minter.sha256"
-  want="$(awk '{print $1}' "$tmp/minter.sha256")"
-  got="$(sha256sum "$tmp/minter.tar.gz" | awk '{print $1}')"
-  [ "$want" = "$got" ] || die "checksum mismatch — refusing to install
+archive_name="${url##*/}"
+if [ -n "$sums_url" ]; then
+  curl -fsSL "$sums_url" -o "$tmp/SHA256SUMS.txt"
+  want="$(awk -v file="$archive_name" '$2 == file { print $1; exit }' "$tmp/SHA256SUMS.txt")"
+  [ -n "$want" ] || die "SHA256SUMS.txt has no entry for $archive_name"
+elif [ -n "$legacy_sum_url" ]; then
+  curl -fsSL "$legacy_sum_url" -o "$tmp/minter.sha256"
+  want="$(awk '{print $1; exit}' "$tmp/minter.sha256")"
+else
+  die "release $tag has no checksum for $archive_name"
+fi
+got="$(sha256sum "$tmp/minter.tar.gz" | awk '{print $1}')"
+[ "$want" = "$got" ] || die "checksum mismatch — refusing to install
        expected $want
        got      $got"
-  ok "checksum verified"
-else
-  warn "no published checksum for $tag; skipping verification"
-fi
+ok "checksum verified"
 
 tar -xzf "$tmp/minter.tar.gz" -C "$tmp"
 src="$(find "$tmp" -maxdepth 1 -type d -name 'minter-desktop-*-linux-x64' -print -quit)"
@@ -275,7 +283,7 @@ cat <<BANNER
 
   EASY WAY — from Windows:
     1. Get minter-connect:
-       https://github.com/MaxBetov-pdd/minter-connect
+       https://github.com/ramirezoffc/minter-connect
     2. Run connect.ps1 and enter when asked:
            server:  $ip
            user:    $sshuser

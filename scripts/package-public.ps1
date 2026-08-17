@@ -16,6 +16,8 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
+$TauriConfig = Get-Content -Raw -LiteralPath (Join-Path $Root "crates\minter-desktop\src-tauri\tauri.conf.json") |
+    ConvertFrom-Json
 
 $Out = Join-Path $Root "Public"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
@@ -175,7 +177,7 @@ if ($MakeZip) {
             exit 1
         }
 
-        $zipName = "minter-desktop-0.1.0-windows.zip"
+        $zipName = "minter-desktop-$($TauriConfig.version)-windows.zip"
         $zipPath = Join-Path $Out $zipName
         if (Test-Path -LiteralPath $zipPath) { Remove-Item -Force -LiteralPath $zipPath }
 

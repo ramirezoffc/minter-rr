@@ -97,6 +97,26 @@ jobs:
         working-directory: crates/minter-desktop
         run: npm ci
 
+      - name: Check PowerShell packaging syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($script in @(
+            "scripts/package-windows-portable.ps1",
+            "scripts/package-public.ps1"
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $env:GITHUB_WORKSPACE $script),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              throw "$script has PowerShell parser errors: $($errors -join '; ')"
+            }
+          }
+
       - name: Validate Windows packaging configuration
         working-directory: crates/minter-desktop
         run: npm run verify:windows-packaging
@@ -129,11 +149,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Check shell syntax
-        run: bash -n deploy/linux/*.sh deploy/linux/tests/*.sh
+        run: bash -n deploy/linux/*.sh deploy/linux/tests/*.sh scripts/*.sh scripts/tests/*.sh
 
       - name: Test installer release selector
         run: bash deploy/linux/tests/install-version.sh
 
       - name: Test VPS runtime configuration
         run: bash deploy/linux/tests/vps-runtime-config.sh
+
+      - name: Validate release metadata
+        run: |
+          node scripts/verify-release-metadata.mjs
+          node scripts/verify-release-workflow.mjs
+
+      - name: Test release packaging helpers
+        run: bash scripts/tests/release-packaging.sh

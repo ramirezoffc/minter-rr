@@ -17,7 +17,7 @@ use serde::Serialize;
 use std::time::Duration;
 
 /// Repository queried for releases.
-pub const DEFAULT_REPO: &str = "MaxBetov-pdd/Minter-rs-v2";
+pub const DEFAULT_REPO: &str = "ramirezoffc/minter-rr";
 
 /// Version this binary was built from.
 pub fn current_version() -> &'static str {
