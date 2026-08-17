@@ -46,5 +46,15 @@ assert_release_selector() (
 
 assert_release_selector "__unset__" "latest"
 assert_release_selector "v0.2.2" "v0.2.2"
+assert_release_selector "v0.3.0-beta.1" "v0.3.0-beta.1"
+
+grep -Fq 'REPO="${MINTER_REPO:-ramirezoffc/minter-rr}"' "$INSTALLER" || \
+  fail "installer default repository is not ramirezoffc/minter-rr"
+grep -Fq '_linux-vps-x64.tar.gz' "$INSTALLER" || \
+  fail "installer does not recognize the beta Linux VPS artifact"
+grep -Fq 'SHA256SUMS.txt' "$INSTALLER" || \
+  fail "installer does not support the consolidated checksum manifest"
+grep -Fq 'has no checksum for $archive_name' "$INSTALLER" || \
+  fail "installer does not stop when release checksums are missing"
 
 printf 'PASS: MINTER release selector survives os-release VERSION\n'

@@ -10,6 +10,7 @@ const tauriDir = join(desktopDir, "src-tauri");
 
 const config = JSON.parse(readFileSync(join(tauriDir, "tauri.conf.json"), "utf8"));
 const packageJson = JSON.parse(readFileSync(join(desktopDir, "package.json"), "utf8"));
+const packageLock = JSON.parse(readFileSync(join(desktopDir, "package-lock.json"), "utf8"));
 const cargoToml = readFileSync(join(tauriDir, "Cargo.toml"), "utf8");
 const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 
@@ -24,6 +25,13 @@ assert.equal(
   "WebView2 must use the standard download bootstrapper",
 );
 assert.equal(config.version, cargoVersion, "Tauri and Cargo versions must match");
+assert.equal(packageJson.version, cargoVersion, "npm and Cargo versions must match");
+assert.equal(packageLock.version, cargoVersion, "npm lockfile and Cargo versions must match");
+assert.equal(
+  packageLock.packages?.[""]?.version,
+  cargoVersion,
+  "npm lockfile root package and Cargo versions must match",
+);
 assert.equal(packageJson.private, true, "the desktop npm package must remain private");
 assert.ok(
   packageJson.scripts["build:windows"].includes(
@@ -46,6 +54,11 @@ assert.equal(
   config.bundle.windows.nsis.installerHooks,
   undefined,
   "custom NSIS hooks require a separate user-data safety review",
+);
+assert.equal(
+  config.bundle.resources,
+  undefined,
+  "release bundles must not include unreviewed external resources",
 );
 
 console.log("Windows packaging configuration is valid.");

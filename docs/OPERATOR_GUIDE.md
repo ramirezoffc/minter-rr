@@ -2,9 +2,9 @@
 
 Short first-run guide for the Windows desktop app. Full walkthrough in Russian: [`USER_GUIDE.md`](../USER_GUIDE.md).
 
-**Version:** 0.1.0  
+**Version:** 0.3.0-beta.1
 **Author:** [X @AndarkFomo](https://x.com/AndarkFomo) · [Telegram](https://t.me/grassfoundationn)  
-**Source:** [github.com/MaxBetov-pdd/Minter-rs-v2](https://github.com/MaxBetov-pdd/Minter-rs-v2)
+**Source:** [github.com/ramirezoffc/minter-rr](https://github.com/ramirezoffc/minter-rr)
 
 ---
 
@@ -38,10 +38,10 @@ Not affiliated with OpenSea. You are responsible for keys, funds, and compliance
 
 ### Option A — Release zip
 
-1. Download `minter-desktop-*-windows.zip` from [Releases](https://github.com/MaxBetov-pdd/Minter-rs-v2/releases)
-2. Verify SHA256 if a `.sha256` file is provided
-3. Unzip to a folder (e.g. `C:\Minter\`)
-4. Run `minter-desktop.exe`  
+1. Download `MINTER_*_x64-setup.exe` or `MINTER_*_x64-portable.zip` from [Releases](https://github.com/ramirezoffc/minter-rr/releases)
+2. Verify SHA256 against `SHA256SUMS.txt`
+3. Run the installer, or unzip the portable archive to a folder (e.g. `C:\Minter\`)
+4. Run `MINTER.exe`
    SmartScreen (“Unknown publisher”) → **More info** → **Run anyway** (unsigned builds)
 
 ### Option B — From source
@@ -49,8 +49,8 @@ Not affiliated with OpenSea. You are responsible for keys, funds, and compliance
 Prerequisites: Rust (stable), MSVC C++ build tools, WebView2.
 
 ```powershell
-git clone https://github.com/MaxBetov-pdd/Minter-rs-v2
-cd minter-rs
+git clone https://github.com/ramirezoffc/minter-rr
+cd minter-rr
 cargo run -p minter-desktop --release
 ```
 

@@ -16,8 +16,8 @@ npm run package:windows:portable
 Expected outputs for the current version are:
 
 ```text
-../../target/x86_64-pc-windows-msvc/release/bundle/nsis/MINTER_0.2.2_x64-setup.exe
-../../dist/windows/MINTER_0.2.2_x64-portable.zip
+../../target/x86_64-pc-windows-msvc/release/bundle/nsis/MINTER_0.3.0-beta.1_x64-setup.exe
+../../dist/windows/MINTER_0.3.0-beta.1_x64-portable.zip
 ```
 
 The NSIS installer is a current-user install and uses Tauri's WebView2 download

@@ -5,8 +5,8 @@
 
 <!-- Badges -->
 <p align="center">
-  <a href="https://github.com/MaxBetov-pdd/Minter-rs-v2/actions/workflows/ci.yml"><img src="https://github.com/MaxBetov-pdd/Minter-rs-v2/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/MaxBetov-pdd/Minter-rs-v2/releases/latest"><img src="https://img.shields.io/github/v/release/MaxBetov-pdd/Minter-rs-v2?style=flat-square&label=release" alt="Release"></a>
+  <a href="https://github.com/ramirezoffc/minter-rr/actions/workflows/ci.yml"><img src="https://github.com/ramirezoffc/minter-rr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ramirezoffc/minter-rr/releases"><img src="https://img.shields.io/github/v/release/ramirezoffc/minter-rr?include_prereleases&style=flat-square&label=release" alt="Release"></a>
   <img src="https://img.shields.io/badge/engine-Rust-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust">
   <img src="https://img.shields.io/badge/desktop-Tauri%202-0a101c?style=flat-square&logo=tauri&logoColor=57c06b" alt="Tauri 2">
   <img src="https://img.shields.io/badge/platform-Windows-0a101c?style=flat-square&logo=windows&logoColor=white" alt="Windows">
@@ -47,9 +47,9 @@
 
 ### Release binary (Windows)
 
-1. Download the latest **`minter-desktop-*-windows-x64.zip`** from [Releases](https://github.com/MaxBetov-pdd/Minter-rs-v2/releases/latest)
-2. Verify the SHA256 checksum when provided
-3. Unzip → run `minter-desktop.exe`
+1. Download **`MINTER_*_x64-setup.exe`** or **`MINTER_*_x64-portable.zip`** from [Releases](https://github.com/ramirezoffc/minter-rr/releases)
+2. Verify the SHA256 checksum against `SHA256SUMS.txt`
+3. Run the installer, or unzip the portable archive and run `MINTER.exe`
 4. Settings → Alchemy API key → Proxies → **Check Connection**
 5. **Dry Run** habits for raw tools; OpenSea **Tasks → Start** is LIVE (type `LIVE`)
 
@@ -59,18 +59,19 @@ One command on a fresh VPS — Ubuntu 22.04+, Debian 12+, Fedora 36+, RHEL 9+ or
 Arch. No desktop environment, no Rust toolchain:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MaxBetov-pdd/Minter-rs-v2/main/deploy/linux/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ramirezoffc/minter-rr/main/deploy/linux/install.sh |
+  sudo MINTER_VERSION=v0.3.0-beta.1 bash
 ```
 
 Then reach the GUI from Windows with
-[minter-connect](https://github.com/MaxBetov-pdd/minter-connect) — it sets up
+[minter-connect](https://github.com/ramirezoffc/minter-connect) — it sets up
 the SSH tunnel and opens the browser for you.
 
 ### From source
 
 ```powershell
-git clone https://github.com/MaxBetov-pdd/Minter-rs-v2
-cd minter-rs
+git clone https://github.com/ramirezoffc/minter-rr
+cd minter-rr
 cargo run -p minter-desktop --release
 ```
 
@@ -144,7 +145,7 @@ MINTER is a **self-contained desktop app**: a Rust engine (`minter-core`) wrappe
 
 | Method | When |
 |--------|------|
-| **[Windows zip](https://github.com/MaxBetov-pdd/Minter-rs-v2/releases/latest)** | Run it on your own machine — download, unzip, launch |
+| **[Windows installer / portable](https://github.com/ramirezoffc/minter-rr/releases)** | Run it on your own machine — install or unpack, then launch |
 | **[One-command Linux install](deploy/linux/README.md)** | Run it 24/7 on a headless VPS, close to the chain |
 | **Build from source** | You develop or want a custom build |
 
@@ -261,7 +262,7 @@ scripts/package-public.ps1   # local Windows ship folder / safe zip
 ```
 
 Reaching the GUI on a server is a separate, deliberately small repository:
-**[minter-connect](https://github.com/MaxBetov-pdd/minter-connect)** — one
+**[minter-connect](https://github.com/ramirezoffc/minter-connect)** — one
 PowerShell script that sets up the SSH key, opens the tunnel and launches the
 browser. noVNC stays bound to the server's loopback; nothing is ever exposed.
 

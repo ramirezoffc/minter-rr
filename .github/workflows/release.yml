@@ -1,96 +1,150 @@
-# Tag-driven release: builds the Windows desktop app and the Linux server
-# binary, then publishes both to one GitHub Release.
-#
-#   git tag v0.2.0 && git push origin v0.2.0
-#
-# Two artifacts, two audiences:
-#   * windows .zip    — run MINTER locally on your own machine
-#   * linux .tar.gz   — what deploy/linux/install.sh pulls onto a headless VPS
-name: Release
+name: Windows and VPS beta release
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to build (e.g. v0.2.0). Empty = dev build, no release."
-        required: false
-        default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  metadata:
+    name: Validate release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      expected_tag: ${{ steps.release.outputs.expected_tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      windows_setup: ${{ steps.release.outputs.windows_setup }}
+      windows_portable: ${{ steps.release.outputs.windows_portable }}
+      linux_vps: ${{ steps.release.outputs.linux_vps }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate project version and release tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node scripts/verify-release-metadata.mjs --github-output
+
   windows:
-    name: Windows desktop
+    name: Windows x64 packages
+    needs: metadata
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/minter-desktop/package-lock.json
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
-      - name: Build
-        run: cargo build -p minter-desktop --release
+      - name: Install frontend dependencies
+        working-directory: crates/minter-desktop
+        run: npm ci
 
-      - name: Package
+      - name: Validate Windows packaging configuration
+        working-directory: crates/minter-desktop
+        run: npm run verify:windows-packaging
+
+      - name: Build unsigned NSIS installer
+        working-directory: crates/minter-desktop
+        run: npm run build:windows
+
+      - name: Build portable archive
+        working-directory: crates/minter-desktop
+        run: npm run package:windows:portable
+
+      - name: Stage and validate Windows release assets
         shell: pwsh
+        env:
+          SETUP_NAME: ${{ needs.metadata.outputs.windows_setup }}
+          PORTABLE_NAME: ${{ needs.metadata.outputs.windows_portable }}
         run: |
           $ErrorActionPreference = "Stop"
-          $tag = "${{ github.ref_name }}"
-          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.tag }}" -ne "") {
-            $tag = "${{ inputs.tag }}"
+          Set-StrictMode -Version Latest
+
+          $installer = Join-Path $env:GITHUB_WORKSPACE "target\x86_64-pc-windows-msvc\release\bundle\nsis\$env:SETUP_NAME"
+          $portable = Join-Path $env:GITHUB_WORKSPACE "dist\windows\$env:PORTABLE_NAME"
+          foreach ($asset in @($installer, $portable)) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+              throw "Expected Windows release asset was not created: $asset"
+            }
           }
-          if (-not $tag) { $tag = "dev-${{ github.run_id }}" }
-          $ver = $tag.TrimStart("v")
 
-          $exe = @(
-            "target\release\minter-desktop.exe",
-            "crates\minter-desktop\src-tauri\target\release\minter-desktop.exe"
-          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $exe) { throw "minter-desktop.exe not found after build" }
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($portable)
+          try {
+            $members = @($zip.Entries | ForEach-Object { $_.FullName })
+            if ($members.Count -ne 1 -or $members[0] -ne "MINTER.exe") {
+              throw "Portable archive must contain only MINTER.exe; found: $($members -join ', ')"
+            }
+          } finally {
+            $zip.Dispose()
+          }
 
-          $stage = "dist\minter-desktop-$ver-windows-x64"
+          $stage = Join-Path $env:GITHUB_WORKSPACE "dist\release-windows"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item -Force $exe (Join-Path $stage "minter-desktop.exe")
-          foreach ($f in @("USER_GUIDE.md","README.md","SECURITY.md","LICENSE-MIT","LICENSE-APACHE","NOTICE")) {
-            if (Test-Path $f) { Copy-Item -Force $f $stage }
+          Copy-Item -LiteralPath $installer -Destination (Join-Path $stage $env:SETUP_NAME)
+          Copy-Item -LiteralPath $portable -Destination (Join-Path $stage $env:PORTABLE_NAME)
+
+          $staged = @(Get-ChildItem -LiteralPath $stage -File)
+          if ($staged.Count -ne 2) {
+            throw "Windows release staging must contain exactly two files"
           }
-          if (Test-Path "docs\OPERATOR_GUIDE.md") { Copy-Item -Force "docs\OPERATOR_GUIDE.md" $stage }
 
-          $zip = "dist\minter-desktop-$ver-windows-x64.zip"
-          Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force
-          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
-          "$hash  $(Split-Path -Leaf $zip)" | Set-Content -Encoding ascii "$zip.sha256"
-          Write-Host "SHA256 $hash"
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
         with:
-          name: release-windows
-          path: |
-            dist/*.zip
-            dist/*.sha256
+          name: release-windows-${{ github.run_id }}
+          path: dist/release-windows/*
+          if-no-files-found: error
+          retention-days: 14
 
   linux:
-    name: Linux server
-    # Pinned to 22.04 on purpose: a binary linked against 24.04's glibc (2.39)
-    # refuses to start on a 22.04 server, while a 22.04 build runs on both.
-    # Most VPS images are still 22.04, so build against the older floor.
+    name: Linux VPS x64 package
+    needs: metadata
+    # Keep the glibc 2.34 build floor so the artifact works on Ubuntu 22.04+
+    # as promised by deploy/linux/install.sh. ubuntu-latest would raise it.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
-      - name: Build dependencies
+      - name: Install Linux desktop build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -98,107 +152,104 @@ jobs:
             libwebkit2gtk-4.1-dev libxdo-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf
 
-      - name: Build
+      - name: Build production binary
         run: cargo build -p minter-desktop --release
 
-      - name: Package
+      - name: Locate and package Linux VPS binary
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           set -euo pipefail
-          tag="${{ github.ref_name }}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
-            tag="${{ inputs.tag }}"
-          fi
-          [ -n "$tag" ] || tag="dev-${{ github.run_id }}"
-          ver="${tag#v}"
-
-          bin=""
-          for c in target/release/minter-desktop \
-                   crates/minter-desktop/src-tauri/target/release/minter-desktop; do
-            [ -x "$c" ] && bin="$c" && break
+          binary=""
+          for candidate in \
+            target/release/minter-desktop \
+            crates/minter-desktop/src-tauri/target/release/minter-desktop; do
+            if [ -x "$candidate" ]; then
+              binary="$candidate"
+              break
+            fi
           done
-          [ -n "$bin" ] || { echo "minter-desktop not found after build" >&2; exit 1; }
+          [ -n "$binary" ] || { echo "minter-desktop not found after build" >&2; exit 1; }
+          bash scripts/package-linux-vps.sh "$RELEASE_VERSION" "$binary" dist/release-linux
 
-          stage="dist/minter-desktop-$ver-linux-x64"
-          mkdir -p "$stage"
-          cp "$bin" "$stage/minter-desktop"
-          chmod 755 "$stage/minter-desktop"
-          # Ship the server-side runner and unit next to the binary so the
-          # installer never has to reach back into the source tree.
-          cp deploy/linux/start-minter-vnc.sh "$stage/"
-          cp deploy/linux/minter-vps.service "$stage/"
-          for f in README.md SECURITY.md LICENSE-MIT LICENSE-APACHE NOTICE USER_GUIDE.md; do
-            [ -f "$f" ] && cp "$f" "$stage/"
-          done
-          [ -f docs/OPERATOR_GUIDE.md ] && cp docs/OPERATOR_GUIDE.md "$stage/"
+          echo "Highest glibc symbols required:"
+          objdump -T "$binary" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -3
 
-          name="minter-desktop-$ver-linux-x64.tar.gz"
-          tar -czf "dist/$name" -C dist "minter-desktop-$ver-linux-x64"
-          # Hash recorded with the bare filename so `sha256sum -c` works from
-          # whatever directory the operator downloaded into.
-          ( cd dist && sha256sum "$name" > "$name.sha256" )
-          # Surfaced in the build log so a glibc regression is caught here and
-          # not by an operator whose server refuses to start the binary.
-          echo "highest glibc symbol required:"
-          objdump -T "$stage/minter-desktop" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -3
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload Linux VPS release asset
+        uses: actions/upload-artifact@v4
         with:
-          name: release-linux
-          path: |
-            dist/*.tar.gz
-            dist/*.sha256
+          name: release-linux-${{ github.run_id }}
+          path: dist/release-linux/*
+          if-no-files-found: error
+          retention-days: 14
 
-  release:
-    name: Publish release
-    needs: [windows, linux]
-    if: startsWith(github.ref, 'refs/tags/v')
+  finalize:
+    name: Finalize release candidate
+    needs: [metadata, windows, linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download native build artifacts
+        uses: actions/download-artifact@v4
         with:
+          pattern: release-*-${{ github.run_id }}
           path: dist
           merge-multiple: true
 
-      - name: List artifacts
-        run: ls -la dist
+      - name: Validate names and generate SHA256SUMS.txt
+        run: bash scripts/finalize-release-assets.sh "${{ needs.metadata.outputs.version }}" dist
 
-      - uses: softprops/action-gh-release@v2
+      - name: Upload consolidated release candidate
+        uses: actions/upload-artifact@v4
         with:
-          generate_release_notes: true
-          files: |
-            dist/*.zip
-            dist/*.tar.gz
-            dist/*.sha256
-          body: |
-            ## MINTER ${{ github.ref_name }}
+          name: release-candidate-${{ needs.metadata.outputs.version }}-${{ github.run_id }}
+          path: |
+            dist/${{ needs.metadata.outputs.windows_setup }}
+            dist/${{ needs.metadata.outputs.windows_portable }}
+            dist/${{ needs.metadata.outputs.linux_vps }}
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
 
-            Two builds — pick the one that matches how you run it.
+  publish:
+    name: Publish GitHub prerelease
+    needs: [metadata, finalize]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download validated release files
+        uses: actions/download-artifact@v4
+        with:
+          name: release-candidate-${{ needs.metadata.outputs.version }}-${{ github.run_id }}
+          path: dist
 
-            ### Windows — run it on your own machine
-            1. Download `minter-desktop-*-windows-x64.zip`
-            2. Check the hash against the matching `.sha256`
-            3. Unzip anywhere (e.g. `C:\Minter\`) and run `minter-desktop.exe`
-            4. SmartScreen → *More info* → *Run anyway* (the build is unsigned)
+      - name: Verify checksums before publication
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS.txt
 
-            No server needed. Your machine has to be awake at mint time.
-
-            ### Linux VPS — run it 24/7 near the chain
-            On a fresh Linux server — Ubuntu, Debian, Fedora, RHEL or Arch, no desktop required:
-
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/MaxBetov-pdd/Minter-rs-v2/main/deploy/linux/install.sh | sudo bash
-            ```
-
-            The installer pulls `minter-desktop-*-linux-x64.tar.gz` from this
-            release, sets up the service, and prints how to connect.
-
-            Then drive the GUI from Windows with the connector:
-            <https://github.com/MaxBetov-pdd/minter-connect>
-
-            ### Safety
-            - **Burner wallets only.**
-            - Dry Run is on by default; a live OpenSea run needs you to type `LIVE`.
-            - Never share `keys.vault`, `config.json` or `auth_cache.bin`.
-            - Never expose port 3021 to the Internet — reach it through the tunnel.
+      - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          args=(
+            release create "$GITHUB_REF_NAME"
+            dist/MINTER_${RELEASE_VERSION}_x64-setup.exe
+            dist/MINTER_${RELEASE_VERSION}_x64-portable.zip
+            dist/MINTER_${RELEASE_VERSION}_linux-vps-x64.tar.gz
+            dist/SHA256SUMS.txt
+            --verify-tag
+            --generate-notes
+            --title "MINTER $GITHUB_REF_NAME"
+          )
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
